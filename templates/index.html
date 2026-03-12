@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Rollcall</title>
+    <style>
+      :root {
+        --bg: #0f172a;
+        --bg-accent: #1e293b;
+        --text: #e2e8f0;
+        --muted: #94a3b8;
+        --start: #22c55e;
+        --start-hover: #16a34a;
+        --stop: #ef4444;
+        --stop-hover: #dc2626;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: "Segoe UI", Roboto, Arial, sans-serif;
+        color: var(--text);
+        background: radial-gradient(circle at top, #1d4ed8 0%, var(--bg) 55%);
+        display: grid;
+        place-items: center;
+      }
+
+      .panel {
+        width: min(92vw, 760px);
+        padding: 56px 40px;
+        border-radius: 24px;
+        background: linear-gradient(145deg, rgba(30, 41, 59, 0.92), rgba(15, 23, 42, 0.92));
+        border: 1px solid rgba(148, 163, 184, 0.22);
+        box-shadow: 0 20px 60px rgba(2, 6, 23, 0.48);
+        text-align: center;
+      }
+
+      .status {
+        margin: 0;
+        font-size: clamp(4rem, 12vw, 8.5rem);
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        line-height: 1;
+        text-shadow: 0 10px 28px rgba(15, 23, 42, 0.65);
+        transition: color 0.25s ease, text-shadow 0.25s ease, transform 0.25s ease;
+      }
+
+      .status-highlight {
+        color: #fef08a;
+        text-shadow: 0 0 24px rgba(250, 204, 21, 0.6), 0 10px 28px rgba(15, 23, 42, 0.65);
+        transform: scale(1.02);
+      }
+
+      .subtitle {
+        margin: 14px 0 34px;
+        color: var(--muted);
+        font-size: 1.05rem;
+      }
+
+      .actions {
+        display: flex;
+        justify-content: center;
+        gap: 14px;
+        flex-wrap: wrap;
+      }
+
+      .btn {
+        border: 0;
+        border-radius: 12px;
+        min-width: 140px;
+        padding: 14px 26px;
+        font-size: 1rem;
+        font-weight: 600;
+        color: #fff;
+        cursor: pointer;
+        transition: transform 0.14s ease, box-shadow 0.14s ease, background-color 0.14s ease;
+      }
+
+      .btn:hover {
+        transform: translateY(-1px);
+      }
+
+      .btn:active {
+        transform: translateY(0);
+      }
+
+      .btn-start {
+        background: var(--start);
+        box-shadow: 0 10px 24px rgba(34, 197, 94, 0.32);
+      }
+
+      .btn-start:hover {
+        background: var(--start-hover);
+      }
+
+      .btn-stop {
+        background: var(--stop);
+        box-shadow: 0 10px 24px rgba(239, 68, 68, 0.3);
+      }
+
+      .btn-stop:hover {
+        background: var(--stop-hover);
+      }
+    </style>
+  </head>
+  <body>
+    <main class="panel">
+      <h1 class="status" id="statusDisplay">Ready</h1>
+      <p class="subtitle" id="subtitle">System is standing by</p>
+      <div class="actions">
+        <button class="btn btn-start" id="startButton" type="button">Start</button>
+        <button class="btn btn-stop" id="stopButton" type="button">Stop</button>
+      </div>
+    </main>
+    <script>
+      let students = [];
+      let cycleTimer = null;
+
+      const statusDisplay = document.getElementById("statusDisplay");
+      const subtitle = document.getElementById("subtitle");
+      const startButton = document.getElementById("startButton");
+      const stopButton = document.getElementById("stopButton");
+
+      function clearHighlight() {
+        statusDisplay.classList.remove("status-highlight");
+      }
+
+      function startCycling() {
+        if (!students.length) {
+          subtitle.textContent = "No students available";
+          return;
+        }
+
+        clearHighlight();
+        subtitle.textContent = "Cycling through students...";
+
+        if (cycleTimer) {
+          return;
+        }
+
+        cycleTimer = setInterval(() => {
+          const randomIndex = Math.floor(Math.random() * students.length);
+          statusDisplay.textContent = students[randomIndex];
+        }, 70);
+      }
+
+      function stopCycling() {
+        if (!students.length) {
+          return;
+        }
+
+        if (cycleTimer) {
+          clearInterval(cycleTimer);
+          cycleTimer = null;
+        }
+
+        const winnerIndex = Math.floor(Math.random() * students.length);
+        statusDisplay.textContent = students[winnerIndex];
+        statusDisplay.classList.add("status-highlight");
+        subtitle.textContent = "Selected student";
+      }
+
+      window.addEventListener("DOMContentLoaded", async () => {
+        try {
+          const response = await fetch("/api/students");
+          if (!response.ok) {
+            throw new Error(`Request failed with status ${response.status}`);
+          }
+
+          const data = await response.json();
+          students = Array.isArray(data) ? data : [];
+          subtitle.textContent = students.length
+            ? `${students.length} students loaded`
+            : "No students available";
+        } catch (error) {
+          console.error("Failed to load students:", error);
+          students = [];
+          subtitle.textContent = "Failed to load students";
+        }
+
+        startButton.addEventListener("click", startCycling);
+        stopButton.addEventListener("click", stopCycling);
+      });
+    </script>
+  </body>
+</html>
