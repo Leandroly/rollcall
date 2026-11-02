@@ -42,7 +42,7 @@
 
       .status {
         margin: 0;
-        font-size: clamp(4rem, 12vw, 8.5rem);
+        font-size: clamp(2.5rem, 10vw, 7rem);
         font-weight: 700;
         letter-spacing: 0.05em;
         line-height: 1;
@@ -57,9 +57,16 @@
       }
 
       .subtitle {
-        margin: 14px 0 34px;
+        margin: 14px 0 20px;
         color: var(--muted);
         font-size: 1.05rem;
+      }
+
+      .members {
+        min-height: 1.6em;
+        margin: 0 0 28px;
+        line-height: 1.6;
+        overflow-wrap: anywhere;
       }
 
       .actions {
@@ -89,6 +96,12 @@
         transform: translateY(0);
       }
 
+      .btn:disabled {
+        cursor: default;
+        opacity: 0.5;
+        transform: none;
+      }
+
       .btn-start {
         background: var(--start);
         box-shadow: 0 10px 24px rgba(34, 197, 94, 0.32);
@@ -106,85 +119,232 @@
       .btn-stop:hover {
         background: var(--stop-hover);
       }
+
+      .btn-reset {
+        background: #475569;
+      }
+
+      .btn-reset:hover {
+        background: #64748b;
+      }
+
+      .music-toggle {
+        margin-top: 22px;
+        padding: 8px 14px;
+        border: 1px solid rgba(148, 163, 184, 0.3);
+        border-radius: 8px;
+        background: transparent;
+        color: var(--muted);
+        font: inherit;
+        font-size: 0.85rem;
+        cursor: pointer;
+      }
+
+      .music-toggle:hover {
+        color: var(--text);
+      }
     </style>
   </head>
   <body>
     <main class="panel">
-      <h1 class="status" id="statusDisplay">Ready</h1>
-      <p class="subtitle" id="subtitle">System is standing by</p>
+      <h1 class="status" id="statusDisplay" aria-live="polite">Ready</h1>
+      <p class="subtitle" id="subtitle">Loading groups...</p>
+      <p class="members" id="membersDisplay"></p>
       <div class="actions">
-        <button class="btn btn-start" id="startButton" type="button">Start</button>
-        <button class="btn btn-stop" id="stopButton" type="button">Stop</button>
+        <button class="btn btn-start" id="startButton" type="button" disabled>Start</button>
+        <button class="btn btn-stop" id="stopButton" type="button" disabled>Stop</button>
+        <button class="btn btn-reset" id="resetButton" type="button" disabled>Reset draws</button>
       </div>
+      <button class="music-toggle" id="musicToggle" type="button" aria-pressed="true">Music: On</button>
     </main>
+    <audio id="drawMusic" src="{{ url_for('static', filename='audio/draw-loop.wav') }}" preload="none" loop></audio>
     <script>
-      let students = [];
+      let groups = [];
       let cycleTimer = null;
+      let loading = false;
+      let drawing = false;
+      let musicEnabled = true;
 
       const statusDisplay = document.getElementById("statusDisplay");
       const subtitle = document.getElementById("subtitle");
+      const membersDisplay = document.getElementById("membersDisplay");
       const startButton = document.getElementById("startButton");
       const stopButton = document.getElementById("stopButton");
+      const resetButton = document.getElementById("resetButton");
+      const musicToggle = document.getElementById("musicToggle");
+      const drawMusic = document.getElementById("drawMusic");
+      drawMusic.volume = 0.35;
 
-      function clearHighlight() {
-        statusDisplay.classList.remove("status-highlight");
+      function startBackgroundMusic() {
+        if (!musicEnabled) {
+          return;
+        }
+        // Start from the click handler so browsers allow audio playback.
+        drawMusic.play().catch((error) => {
+          console.debug("Background music unavailable:", error);
+        });
       }
 
-      function startCycling() {
-        if (!students.length) {
-          subtitle.textContent = "No students available";
+      function stopBackgroundMusic() {
+        drawMusic.pause();
+        drawMusic.currentTime = 0;
+      }
+
+      function toggleMusic() {
+        musicEnabled = !musicEnabled;
+        musicToggle.textContent = musicEnabled ? "Music: On" : "Music: Off";
+        musicToggle.setAttribute("aria-pressed", String(musicEnabled));
+        if (!musicEnabled) {
+          stopBackgroundMusic();
+        } else if (cycleTimer !== null) {
+          startBackgroundMusic();
+        }
+      }
+
+      function updateButtons() {
+        startButton.disabled = loading || drawing || cycleTimer !== null || !groups.length;
+        stopButton.disabled = drawing || cycleTimer === null;
+        resetButton.disabled = loading || drawing || cycleTimer !== null;
+      }
+
+      async function loadGroups() {
+        const response = await fetch("/api/groups", { cache: "no-store" });
+        if (!response.ok) {
+          throw new Error(`Request failed with status ${response.status}`);
+        }
+        const data = await response.json();
+        groups = Array.isArray(data) ? data : [];
+      }
+
+      async function resetDraws() {
+        if (loading || drawing || cycleTimer !== null) {
+          return;
+        }
+        if (!window.confirm("Clear all draw history and start a new round?")) {
           return;
         }
 
-        clearHighlight();
-        subtitle.textContent = "Cycling through students...";
-
-        if (cycleTimer) {
-          return;
-        }
-
-        cycleTimer = setInterval(() => {
-          const randomIndex = Math.floor(Math.random() * students.length);
-          statusDisplay.textContent = students[randomIndex];
-        }, 70);
-      }
-
-      function stopCycling() {
-        if (!students.length) {
-          return;
-        }
-
-        if (cycleTimer) {
-          clearInterval(cycleTimer);
-          cycleTimer = null;
-        }
-
-        const winnerIndex = Math.floor(Math.random() * students.length);
-        statusDisplay.textContent = students[winnerIndex];
-        statusDisplay.classList.add("status-highlight");
-        subtitle.textContent = "Selected student";
-      }
-
-      window.addEventListener("DOMContentLoaded", async () => {
+        loading = true;
+        updateButtons();
+        subtitle.textContent = "Resetting draw history...";
         try {
-          const response = await fetch("/api/students");
+          const response = await fetch("/api/groups/reset", { method: "POST" });
           if (!response.ok) {
             throw new Error(`Request failed with status ${response.status}`);
           }
 
           const data = await response.json();
-          students = Array.isArray(data) ? data : [];
-          subtitle.textContent = students.length
-            ? `${students.length} students loaded`
-            : "No students available";
+          groups = Array.isArray(data) ? data : [];
+          stopBackgroundMusic();
+          statusDisplay.textContent = "Ready";
+          statusDisplay.classList.remove("status-highlight");
+          membersDisplay.textContent = "";
+          subtitle.textContent = groups.length
+            ? `${groups.length} groups remaining`
+            : "No groups available";
         } catch (error) {
-          console.error("Failed to load students:", error);
-          students = [];
-          subtitle.textContent = "Failed to load students";
+          console.error("Failed to reset draw history:", error);
+          subtitle.textContent = "Failed to reset draw history. Please try again.";
+        } finally {
+          loading = false;
+          updateButtons();
+        }
+      }
+
+      async function startCycling() {
+        if (cycleTimer !== null || loading || drawing) {
+          return;
         }
 
+        loading = true;
+        updateButtons();
+        try {
+          startBackgroundMusic();
+          await loadGroups();
+          if (!groups.length) {
+            stopBackgroundMusic();
+            subtitle.textContent = "No groups available";
+            return;
+          }
+
+          statusDisplay.classList.remove("status-highlight");
+          membersDisplay.textContent = "";
+          subtitle.textContent = "Cycling through groups...";
+          const showRandomGroup = () => {
+            const randomIndex = Math.floor(Math.random() * groups.length);
+            statusDisplay.textContent = groups[randomIndex].name;
+          };
+          showRandomGroup();
+          cycleTimer = setInterval(showRandomGroup, 70);
+          startBackgroundMusic();
+        } catch (error) {
+          stopBackgroundMusic();
+          console.error("Failed to load groups:", error);
+          subtitle.textContent = "Failed to load groups. Please try again.";
+        } finally {
+          loading = false;
+          updateButtons();
+        }
+      }
+
+      async function stopCycling() {
+        if (cycleTimer === null || drawing) {
+          return;
+        }
+
+        clearInterval(cycleTimer);
+        cycleTimer = null;
+        stopBackgroundMusic();
+        drawing = true;
+        updateButtons();
+        subtitle.textContent = "Selecting group...";
+
+        try {
+          const response = await fetch("/api/groups/draw", { method: "POST" });
+          if (!response.ok) {
+            if (response.status === 409) {
+              statusDisplay.textContent = "Ready";
+              subtitle.textContent = "No groups available for this draw";
+              return;
+            }
+            throw new Error(`Request failed with status ${response.status}`);
+          }
+
+          const winner = await response.json();
+          groups = groups.filter((group) => group.id !== winner.id);
+          statusDisplay.textContent = winner.name;
+          membersDisplay.textContent = winner.members.join(" · ");
+          statusDisplay.classList.add("status-highlight");
+          subtitle.textContent = "Selected group";
+        } catch (error) {
+          console.error("Failed to select group:", error);
+          statusDisplay.textContent = "Ready";
+          subtitle.textContent = "Failed to select group. Please try again.";
+        } finally {
+          drawing = false;
+          updateButtons();
+        }
+      }
+
+      window.addEventListener("DOMContentLoaded", async () => {
         startButton.addEventListener("click", startCycling);
         stopButton.addEventListener("click", stopCycling);
+        resetButton.addEventListener("click", resetDraws);
+        musicToggle.addEventListener("click", toggleMusic);
+        loading = true;
+        updateButtons();
+        try {
+          await loadGroups();
+          subtitle.textContent = groups.length
+            ? `${groups.length} groups remaining`
+            : "No groups available";
+        } catch (error) {
+          console.error("Failed to load groups:", error);
+          subtitle.textContent = "Failed to load groups. Please reload the page.";
+        } finally {
+          loading = false;
+          updateButtons();
+        }
       });
     </script>
   </body>
