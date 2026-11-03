@@ -11,7 +11,7 @@ from flask import Flask, current_app, jsonify, render_template
 
 BASE_DIR = Path(__file__).resolve().parent
 # datetime.weekday(): Monday = 0. Keep selection rules on the server.
-DRAW_WEEKDAYS = {5: 3, 6: 1, 7: 3, 15: 3}
+DRAW_WEEKDAYS = {5: 3, 7: 3, 15: 3}
 
 
 def create_app(test_config=None):
@@ -138,10 +138,13 @@ def draw_group():
         database.execute("BEGIN IMMEDIATE")
         selected = drawn_ids(database)
         now = current_draw_time()
+        remaining = [group for group in groups if group["id"] not in selected]
+        # Outside Thursday, release reserved groups after all unrestricted groups are drawn.
+        unrestricted_remaining = any(group["id"] not in DRAW_WEEKDAYS for group in remaining)
         candidates = [
-            group for group in groups
-            if group["id"] not in selected
-            and DRAW_WEEKDAYS.get(group["id"], now.weekday()) == now.weekday()
+            group for group in remaining
+            if not unrestricted_remaining
+            or DRAW_WEEKDAYS.get(group["id"], now.weekday()) == now.weekday()
         ]
         if not candidates:
             database.rollback()
