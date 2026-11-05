@@ -10,8 +10,10 @@ from zoneinfo import ZoneInfo
 from flask import Flask, current_app, jsonify, render_template
 
 BASE_DIR = Path(__file__).resolve().parent
-# datetime.weekday(): Monday = 0. Keep selection rules on the server.
-DRAW_WEEKDAYS = {5: 3, 7: 3, 15: 3}
+# Keep the completed groups and selection stages on the server.
+ALREADY_DRAWN_GROUP_IDS = frozenset({1, 2, 4, 10, 14, 17})
+PRIORITY_GROUP_IDS = frozenset({3, 6, 8, 9, 16})
+FINAL_GROUP_IDS = frozenset({11, 12})
 
 
 def create_app(test_config=None):
@@ -87,6 +89,10 @@ def load_groups():
     return [group for group in groups.values() if group["members"]]
 
 
+def load_drawable_groups():
+    return [group for group in load_groups() if group["id"] not in ALREADY_DRAWN_GROUP_IDS]
+
+
 @contextmanager
 def draw_history():
     database_path = Path(current_app.config["DRAW_DATABASE"])
@@ -109,8 +115,8 @@ def drawn_ids(database):
 def api_groups():
     with draw_history() as database:
         selected = drawn_ids(database)
-    # The animation shows every remaining group, without exposing scheduling rules.
-    response = jsonify([group for group in load_groups() if group["id"] not in selected])
+    # The animation shows every remaining group, without exposing selection rules.
+    response = jsonify([group for group in load_drawable_groups() if group["id"] not in selected])
     response.headers["Cache-Control"] = "no-store"
     return response
 
@@ -120,7 +126,7 @@ def current_draw_time():
 
 
 def reset_draws():
-    groups = load_groups()
+    groups = load_drawable_groups()
     with draw_history() as database:
         database.execute("BEGIN IMMEDIATE")
         database.execute("DELETE FROM drawn_groups")
@@ -132,20 +138,19 @@ def reset_draws():
 
 
 def draw_group():
-    groups = load_groups()
+    groups = load_drawable_groups()
     with draw_history() as database:
         # Serialize selection and recording across tabs and server processes.
         database.execute("BEGIN IMMEDIATE")
         selected = drawn_ids(database)
         now = current_draw_time()
         remaining = [group for group in groups if group["id"] not in selected]
-        # Outside Thursday, release reserved groups after all unrestricted groups are drawn.
-        unrestricted_remaining = any(group["id"] not in DRAW_WEEKDAYS for group in remaining)
-        candidates = [
-            group for group in remaining
-            if not unrestricted_remaining
-            or DRAW_WEEKDAYS.get(group["id"], now.weekday()) == now.weekday()
-        ]
+        # Finish each stage before the next; draw randomly within the active stage.
+        candidates = (
+            [group for group in remaining if group["id"] in PRIORITY_GROUP_IDS]
+            or [group for group in remaining if group["id"] not in FINAL_GROUP_IDS]
+            or remaining
+        )
         if not candidates:
             database.rollback()
             return jsonify(error="No groups available for this draw"), 409
